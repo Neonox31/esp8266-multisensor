@@ -4,14 +4,9 @@
 #define FW_NAME "multisensor-firmware"
 #define FW_VERSION "1.0.0"
 
-/* Magic sequence for Autodetectable Binary Upload */
-const char *__FLAGGED_FW_NAME = "\xbf\x84\xe4\x13\x54" FW_NAME "\x93\x44\x6b\xa7\x75";
-const char *__FLAGGED_FW_VERSION = "\x6a\x3f\x3e\x0e\xe1" FW_VERSION "\xb0\x30\x48\xd4\x1a";
-/* End of magic sequence for Autodetectable Binary Upload */
-
 const int PIN_LDR = A0;
 const int PIN_PIR = D6;
-const int PIN_DHT22 = D3;
+const int PIN_DHT22 = D4;
 
 const int LUMINOSITY_INTERVAL = 1;
 const int MOTION_INTERVAL = 1;
@@ -30,23 +25,17 @@ SimpleDHT22 dht22;
 
 void loopHandler() {
   if (millis() - lastLuminositySent >= LUMINOSITY_INTERVAL * 1000UL || lastLuminositySent == 0) {
-    int luminosity = analogRead(PIN_LDR);
+    int luminosity = (analogRead(PIN_LDR) * 100) / 1024;
 
-    if (!Homie.setNodeProperty(luminosityNode, "state", String(luminosity), true)) {
-      Serial.println("Luminosity sending failed");
-    } else {
-      lastLuminositySent = millis();
-    }
+    luminosityNode.setProperty("state").send(String(luminosity));
+    lastLuminositySent = millis();
   }
 
   if (millis() - lastMotionSent >= MOTION_INTERVAL * 1000UL || lastMotionSent == 0) {
-    int motion = digitalRead(PIN_PIR);
+    String motion = digitalRead(PIN_PIR) == 1 ? "true" : "false";
 
-    if (!Homie.setNodeProperty(motionNode, "state", String(motion), true)) {
-      Serial.println("Motion sending failed");
-    } else {
-      lastMotionSent = millis();
-    }
+    motionNode.setProperty("state").send(motion);
+    lastMotionSent = millis();
   }
 
   if (millis() - lastTemperatureHumiditySent >= TEMPERATURE_HUMIDITY_INTERVAL * 1000UL || lastTemperatureHumiditySent == 0) {
@@ -55,24 +44,37 @@ void loopHandler() {
 
     int err = SimpleDHTErrSuccess;
     if ((err = dht22.read2(PIN_DHT22, &temperature, &humidity, NULL)) != SimpleDHTErrSuccess) {
-      Serial.print("Read DHT22 failed, err="); Serial.println(err);
+      Homie.getLogger() << "read DHT22 failed, err= " << err << endl;
     }
 
-    if (!Homie.setNodeProperty(temperatureNode, "state", String(temperature), true) || !Homie.setNodeProperty(humidityNode, "state", String(humidity), true)) {
-      Serial.println("Temperature or humidity sending failed");
-    } else {
-      lastTemperatureHumiditySent = millis();
-    }
+    temperatureNode.setProperty("state").send(String(temperature));
+    humidityNode.setProperty("state").send(String(humidity));
+    lastTemperatureHumiditySent = millis();
   }
 }
 
+void setupHandler() {
+  luminosityNode.setProperty("unit").send("%");
+  temperatureNode.setProperty("unit").send("°C");
+  humidityNode.setProperty("unit").send("%");
+}
+
 void setup() {
-  Homie.setFirmware(FW_NAME, FW_VERSION);
-  Homie.registerNode(luminosityNode);
-  Homie.registerNode(motionNode);
-  Homie.registerNode(temperatureNode);
-  Homie.registerNode(humidityNode);
-  Homie.setLoopFunction(loopHandler);
+  Serial.begin(115200);
+  Serial << endl << endl;
+
+  Homie_setFirmware(FW_NAME, FW_VERSION);
+  Homie.setSetupFunction(setupHandler).setLoopFunction(loopHandler);
+  
+  luminosityNode.advertise("unit");
+  temperatureNode.advertise("unit");
+  humidityNode.advertise("unit");
+
+  luminosityNode.advertise("state");
+  motionNode.advertise("state");
+  temperatureNode.advertise("state");
+  humidityNode.advertise("state");
+
   Homie.setup();
 }
 
